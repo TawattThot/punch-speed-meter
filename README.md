@@ -51,7 +51,7 @@ iOS requires a **user gesture** to call `DeviceMotionEvent.requestPermission()`.
 ## How to use
 
 1. Read the safety notes.
-2. Tap **Enable Sensors** (or **Simulate punch** on desktop).
+2. Open on your **phone** over HTTPS. Tap **Enable Sensors**.
 3. Grip the phone in your fist, then tap **Arm**.
 4. Throw a controlled punch.
 5. View results, then **Reset** / **Arm again**.
@@ -74,7 +74,7 @@ Session history is stored in `localStorage` on device.
 - Integration drifts; we limit the window and lightly damp velocity at low accel.
 - Device sample rates vary (~30-100 Hz); timestamps drive `dt` when available.
 - Results are for **comparison / fun**, not lab accuracy. Soft punches, loose grip, or spinning the phone will skew numbers.
-- Desktop **Simulate punch** feeds a synthetic acceleration spike when sensors are missing.
+- **Phone only** — DeviceMotion is required. Desktop browsers show a “Open on your phone” message (no simulator).
 
 See comments in `src/physics.js` for implementation details.
 

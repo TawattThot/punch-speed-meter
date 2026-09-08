@@ -368,3 +368,33 @@ button.ghost {
   color: var(--accent2);
   text-shadow: 0 0 24px rgba(255, 176, 32, 0.35);
 }
+
+.phone-only {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: rgba(255, 77, 46, 0.1);
+  border-color: rgba(255, 77, 46, 0.35);
+}
+
+.phone-only .icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.phone-only h2 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+  color: var(--accent);
+}
+
+.phone-only p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.phone-only strong {
+  color: var(--text);
+}

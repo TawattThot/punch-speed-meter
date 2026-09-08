@@ -18,7 +18,6 @@ const state = {
   lastResult: null,
   history: loadHistory(),
   listening: false,
-  simulateMode: false,
 };
 
 let motionHandler = null;
@@ -36,6 +35,10 @@ function timeAgo(ts) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function isPhoneCapable() {
+  return state.secure && state.hasMotionAPI;
 }
 
 function phaseCopy() {
@@ -78,15 +81,31 @@ function phaseCopy() {
 
 function statusPill() {
   if (!state.secure) {
-    return `<div class="status-pill bad">Needs HTTPS or localhost</div>`;
+    return `<div class="status-pill bad">Needs HTTPS</div>`;
   }
-  if (!state.hasMotionAPI && !state.simulateMode) {
-    return `<div class="status-pill warn">No DeviceMotion — use Simulate</div>`;
+  if (!state.hasMotionAPI) {
+    return `<div class="status-pill bad">Open on your phone</div>`;
   }
   if (state.sensorOk) {
     return `<div class="status-pill">Sensors active</div>`;
   }
   return `<div class="status-pill warn">${escapeHtml(state.sensorMsg)}</div>`;
+}
+
+function phoneOnlyBanner() {
+  if (isPhoneCapable()) return '';
+  const reason = !state.secure
+    ? 'This page must be opened over HTTPS on a phone.'
+    : 'Motion sensors are not available in this browser.';
+  return `
+    <section class="card phone-only" role="alert">
+      <div class="icon" aria-hidden="true">📱</div>
+      <div>
+        <h2>Phone only</h2>
+        <p>${escapeHtml(reason)} Open this link on your phone (Safari or Chrome), tap <strong>Enable Sensors</strong>, then arm and punch.</p>
+      </div>
+    </section>
+  `;
 }
 
 function escapeHtml(s) {
@@ -114,21 +133,19 @@ function renderHistory() {
 
 function renderActions() {
   if (state.screen === 'permission') {
+    const disabled = !isPhoneCapable() ? ' disabled' : '';
     return `
-      <button id="btn-enable" type="button">Enable Sensors</button>
-      <button id="btn-simulate" class="ghost" type="button">Simulate punch (desktop)</button>
+      <button id="btn-enable" type="button"${disabled}>Enable Sensors</button>
     `;
   }
   if (state.screen === 'arm') {
     return `
       <button id="btn-arm" type="button">Arm</button>
-      <button id="btn-simulate" class="ghost" type="button">Simulate punch</button>
     `;
   }
   if (state.screen === 'punch') {
     return `
       <button id="btn-cancel" class="secondary" type="button">Cancel</button>
-      <button id="btn-simulate" class="ghost" type="button">Simulate punch</button>
     `;
   }
   // results
@@ -167,6 +184,7 @@ function render() {
       </div>
     </section>
 
+    ${phoneOnlyBanner()}
     ${statusPill()}
 
     <section class="${stageClass}">
@@ -203,7 +221,7 @@ function render() {
 
     <p class="footer-note">
       Estimates use high-pass / gravity-removed acceleration and short-window integration.
-      Recreational accuracy only. iOS requires a user gesture + HTTPS (or localhost).
+      Recreational accuracy only. iOS requires a user tap + HTTPS. Open on your phone.
     </p>
   `;
 
@@ -216,7 +234,6 @@ function bind() {
   document.getElementById('btn-cancel')?.addEventListener('click', onCancel);
   document.getElementById('btn-reset')?.addEventListener('click', onReset);
   document.getElementById('btn-arm-again')?.addEventListener('click', onArm);
-  document.getElementById('btn-simulate')?.addEventListener('click', onSimulate);
   document.getElementById('btn-clear')?.addEventListener('click', () => {
     state.history = clearHistory();
     render();
@@ -225,14 +242,12 @@ function bind() {
 
 async function onEnableSensors() {
   if (!state.secure) {
-    state.sensorMsg = 'Open via HTTPS or localhost';
+    state.sensorMsg = 'Open via HTTPS on your phone';
     render();
     return;
   }
   if (!state.hasMotionAPI) {
-    state.sensorMsg = 'DeviceMotion unavailable';
-    state.simulateMode = true;
-    state.screen = 'arm';
+    state.sensorMsg = 'Open on your phone — sensors unavailable here';
     render();
     return;
   }
@@ -241,7 +256,7 @@ async function onEnableSensors() {
     if (state.needsIOSPermission) {
       const res = await DeviceMotionEvent.requestPermission();
       if (res !== 'granted') {
-        state.sensorMsg = 'Permission denied';
+        state.sensorMsg = 'Permission denied — tap Enable again in Safari';
         render();
         return;
       }
@@ -252,7 +267,7 @@ async function onEnableSensors() {
     state.screen = 'arm';
     render();
   } catch (err) {
-    state.sensorMsg = 'Permission failed — try Simulate';
+    state.sensorMsg = 'Permission failed — try again on your phone';
     console.warn(err);
     render();
   }
@@ -307,7 +322,6 @@ function handleSample(sample) {
     state.liveAccelG = out.accelG;
     state.liveSpeedMph = out.speedMph;
     if (state.screen === 'punch') {
-      // lightweight live update without full re-render thrash: update DOM nodes if present
       const big = document.querySelector('.big-number');
       const meter = document.querySelector('.meter > span');
       const hintPhase = document.querySelector('.phase-label');
@@ -320,10 +334,6 @@ function handleSample(sample) {
       if (hintPhase) {
         hintPhase.textContent =
           estimator.phase === 'punching' ? 'Punching' : 'Armed — Punch!';
-      }
-      const accelEl = document.querySelector('.substats .stat .value');
-      if (accelEl && state.screen === 'punch') {
-        // refresh substats simply via partial render when punching starts
       }
     }
     return;
@@ -340,6 +350,12 @@ function handleSample(sample) {
 }
 
 function onArm() {
+  if (!state.sensorOk && !(state.hasMotionAPI && state.secure)) {
+    state.sensorMsg = 'Enable sensors on your phone first';
+    state.screen = 'permission';
+    render();
+    return;
+  }
   estimator.arm();
   state.lastResult = null;
   state.liveAccelG = 0;
@@ -369,30 +385,6 @@ function onReset() {
   render();
 }
 
-function onSimulate() {
-  state.simulateMode = true;
-  if (state.screen === 'permission') {
-    state.screen = 'arm';
-    state.sensorMsg = 'Simulation mode';
-    render();
-  }
-  // Auto-arm and feed synthetic samples
-  estimator.arm();
-  state.screen = 'punch';
-  render();
-
-  const samples = PunchEstimator.simulatePunch(0.9 + Math.random() * 0.5);
-  let i = 0;
-  const tick = () => {
-    if (i >= samples.length) return;
-    handleSample(samples[i++]);
-    if (state.screen === 'punch') {
-      requestAnimationFrame(tick);
-    }
-  };
-  requestAnimationFrame(tick);
-}
-
 // Register service worker when available (PWA nice-to-have)
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -404,7 +396,7 @@ if ('serviceWorker' in navigator) {
 
 // Initial routing hints
 if (!state.hasMotionAPI) {
-  state.sensorMsg = 'No DeviceMotion API';
+  state.sensorMsg = 'Open on your phone';
 } else if (!state.secure) {
   state.sensorMsg = 'Needs secure context (HTTPS)';
 } else if (state.needsIOSPermission) {
