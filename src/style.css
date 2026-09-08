@@ -398,3 +398,77 @@ button.ghost {
 .phone-only strong {
   color: var(--text);
 }
+
+
+.coach {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: rgba(46, 230, 166, 0.08);
+  border-color: rgba(46, 230, 166, 0.28);
+}
+
+.coach .icon,
+.recovery .icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.coach h2,
+.recovery h2 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.coach h2 {
+  color: var(--good);
+}
+
+.coach p,
+.recovery p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.coach strong,
+.recovery strong {
+  color: var(--text);
+}
+
+.recovery {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: rgba(255, 77, 46, 0.1);
+  border-color: rgba(255, 77, 46, 0.35);
+}
+
+.recovery h2 {
+  color: var(--accent);
+}
+
+.recovery-steps {
+  margin-top: 12px;
+}
+
+.recovery-steps h3 {
+  margin: 10px 0 4px;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.recovery-steps h3:first-child {
+  margin-top: 0;
+}
+
+.recovery-steps ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}

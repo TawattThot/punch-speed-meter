@@ -9,6 +9,8 @@ const state = {
   screen: 'permission', // permission | arm | punch | results
   sensorOk: false,
   sensorMsg: 'Sensors not enabled yet',
+  permissionDenied: false,
+  awaitingPermission: false,
   needsIOSPermission: typeof DeviceMotionEvent !== 'undefined' &&
     typeof DeviceMotionEvent.requestPermission === 'function',
   secure: window.isSecureContext,
@@ -102,7 +104,7 @@ function phoneOnlyBanner() {
       <div class="icon" aria-hidden="true">📱</div>
       <div>
         <h2>Phone only</h2>
-        <p>${escapeHtml(reason)} Open this link on your phone (Safari or Chrome), tap <strong>Enable Sensors</strong>, then arm and punch.</p>
+        <p>${escapeHtml(reason)} Open this link on your phone (Safari or Chrome), tap <strong>Allow Motion Access</strong>, then arm and punch.</p>
       </div>
     </section>
   `;
@@ -131,11 +133,52 @@ function renderHistory() {
     .join('')}</ul>`;
 }
 
+function renderPermissionCoach() {
+  if (state.screen !== 'permission' || state.permissionDenied) return '';
+  return `
+    <section class="card coach" role="status">
+      <div class="icon" aria-hidden="true">📡</div>
+      <div>
+        <h2>Allow motion sensors</h2>
+        <p>After you tap the button, your phone will show a system dialog — tap <strong>Allow</strong> so we can measure punch speed.</p>
+      </div>
+    </section>
+  `;
+}
+
+function renderPermissionRecovery() {
+  if (state.screen !== 'permission' || !state.permissionDenied) return '';
+  return `
+    <section class="card recovery" role="alert">
+      <div class="icon" aria-hidden="true">🔒</div>
+      <div>
+        <h2>Permission denied</h2>
+        <p>Motion access was blocked. Fix it with the steps below, then tap <strong>Try Allow Again</strong>.</p>
+        <div class="recovery-steps">
+          <h3>iPhone (Safari)</h3>
+          <ul>
+            <li>Settings → Safari → scroll to <strong>Motion &amp; Orientation Access</strong> (turn ON)</li>
+            <li>Or clear website data for this site / reopen the link and tap <strong>Allow</strong> when asked</li>
+            <li>Also try Settings → Safari → Advanced → Website Data → remove the trycloudflare site, reload, tap Allow</li>
+          </ul>
+          <h3>Android Chrome</h3>
+          <ul>
+            <li>If a site settings gear appeared, allow <strong>Motion sensors</strong></li>
+            <li>Or Site settings → Permissions → Motion sensors → Allow</li>
+            <li>Reload and try again</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 function renderActions() {
   if (state.screen === 'permission') {
-    const disabled = !isPhoneCapable() ? ' disabled' : '';
+    const disabled = !isPhoneCapable() || state.awaitingPermission ? ' disabled' : '';
+    const label = state.permissionDenied ? 'Try Allow Again' : 'Allow Motion Access';
     return `
-      <button id="btn-enable" type="button"${disabled}>Enable Sensors</button>
+      <button id="btn-enable" type="button"${disabled}>${label}</button>
     `;
   }
   if (state.screen === 'arm') {
@@ -186,6 +229,8 @@ function render() {
 
     ${phoneOnlyBanner()}
     ${statusPill()}
+    ${renderPermissionCoach()}
+    ${renderPermissionRecovery()}
 
     <section class="${stageClass}">
       <div class="phase-label${pulse}">${escapeHtml(copy.label)}</div>
@@ -252,22 +297,64 @@ async function onEnableSensors() {
     return;
   }
 
+  // Keep this synchronous with the tap so iOS still treats requestPermission as user-activated.
+  state.awaitingPermission = true;
+  state.permissionDenied = false;
+  state.sensorMsg = 'Waiting for Allow…';
+  const pill = document.querySelector('.status-pill');
+  if (pill) {
+    pill.className = 'status-pill warn';
+    pill.textContent = 'Waiting for Allow…';
+  }
+  const enableBtn = document.getElementById('btn-enable');
+  if (enableBtn) enableBtn.disabled = true;
+
   try {
-    if (state.needsIOSPermission) {
+    let motionGranted = true;
+
+    const needsMotionPerm =
+      typeof DeviceMotionEvent !== 'undefined' &&
+      typeof DeviceMotionEvent.requestPermission === 'function';
+    const needsOrientationPerm =
+      typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function';
+
+    // Motion is required; call from the user gesture first.
+    if (needsMotionPerm) {
       const res = await DeviceMotionEvent.requestPermission();
-      if (res !== 'granted') {
-        state.sensorMsg = 'Permission denied — tap Enable again in Safari';
-        render();
-        return;
+      motionGranted = res === 'granted';
+    }
+
+    // Also request orientation when available (best-effort; motion remains required).
+    if (needsOrientationPerm) {
+      try {
+        await DeviceOrientationEvent.requestPermission();
+      } catch (orientErr) {
+        console.warn(orientErr);
       }
     }
+
+    if (!motionGranted) {
+      state.awaitingPermission = false;
+      state.permissionDenied = true;
+      state.sensorOk = false;
+      state.sensorMsg = 'Permission denied';
+      render();
+      return;
+    }
+
     startListening();
+    state.awaitingPermission = false;
+    state.permissionDenied = false;
     state.sensorOk = true;
     state.sensorMsg = 'Sensors active';
     state.screen = 'arm';
     render();
   } catch (err) {
-    state.sensorMsg = 'Permission failed — try again on your phone';
+    state.awaitingPermission = false;
+    state.permissionDenied = true;
+    state.sensorOk = false;
+    state.sensorMsg = 'Permission denied';
     console.warn(err);
     render();
   }
@@ -400,9 +487,9 @@ if (!state.hasMotionAPI) {
 } else if (!state.secure) {
   state.sensorMsg = 'Needs secure context (HTTPS)';
 } else if (state.needsIOSPermission) {
-  state.sensorMsg = 'Tap Enable for iOS permission';
+  state.sensorMsg = 'Tap Allow Motion Access';
 } else {
-  state.sensorMsg = 'Tap Enable to start';
+  state.sensorMsg = 'Tap Allow Motion Access';
 }
 
 render();
