@@ -1,0 +1,15 @@
+{
+  "name": "punch-speed-meter",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mobile-first punch speed measurement PWA using DeviceMotion",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "devDependencies": {
+    "vite": "^5.4.11"
+  }
+}
