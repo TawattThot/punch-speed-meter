@@ -1,0 +1,13 @@
+{
+  "appId": "com.tawattthot.punchspeed",
+  "appName": "Punch Speed Meter",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#0b1220",
+    "webContentsDebuggingEnabled": false
+  }
+}

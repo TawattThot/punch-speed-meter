@@ -1,0 +1,1 @@
+Initial F-Droid / Android release with Capacitor wrapper, on-device motion sensing, and optional Donate link.

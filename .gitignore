@@ -3,3 +3,26 @@ dist
 .DS_Store
 *.local
 .vite
+
+# Android / Capacitor build outputs
+android/app/build
+android/build
+android/.gradle
+android/captures
+android/local.properties
+android/*.iml
+android/.idea
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Signing secrets — NEVER commit
+*.jks
+*.keystore
+keystore.properties
+secrets/
+.release/
+
+# Local packaged APKs (copied after gradle)
+release/

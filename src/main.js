@@ -1,6 +1,7 @@
 import './style.css';
 import { PunchEstimator, msToMph } from './physics.js';
 import { loadHistory, addResult, clearHistory } from './storage.js';
+import { DONATE_URL, APP_VERSION } from './config.js';
 
 const app = document.getElementById('app');
 const estimator = new PunchEstimator();
@@ -212,7 +213,7 @@ function render() {
         <h1>Punch Speed Meter</h1>
         <span>Phone-in-fist peak speed</span>
       </div>
-      <div class="badge">v1 punch</div>
+      <div class="badge">v${APP_VERSION}</div>
     </header>
 
     <section class="card safety">
@@ -264,9 +265,14 @@ function render() {
       ${renderHistory()}
     </section>
 
+    <div class="donate-row">
+      <button id="btn-donate" class="ghost donate" type="button">Donate</button>
+      <span class="donate-hint">Optional — supports development (opens browser)</span>
+    </div>
+
     <p class="footer-note">
       Estimates use high-pass / gravity-removed acceleration and short-window integration.
-      Recreational accuracy only. iOS requires a user tap + HTTPS. Open on your phone.
+      Recreational accuracy only. Motion stays on-device. Open on your phone.
     </p>
   `;
 
@@ -283,6 +289,22 @@ function bind() {
     state.history = clearHistory();
     render();
   });
+  document.getElementById('btn-donate')?.addEventListener('click', onDonate);
+}
+
+function onDonate() {
+  const url = DONATE_URL;
+  if (!url) return;
+  // Prefer external browser / new tab so donation never runs inside the WebView.
+  try {
+    const opened = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      window.location.assign(url);
+    }
+  } catch (err) {
+    console.warn(err);
+    window.location.href = url;
+  }
 }
 
 async function onEnableSensors() {

@@ -1,0 +1,5 @@
+Punch Speed Meter estimates punch peak speed using your phone accelerometer. Hold the phone firmly in your fist, arm, punch, and see peak speed (mph and km/h), peak acceleration, and a recreational power score.
+
+Motion data stays on your device. An optional Donate button opens https://paypal.me/joeyboy215 in the system browser.
+
+Safety: grip firmly, never throw the phone, clear the area, and use a case.
