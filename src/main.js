@@ -137,7 +137,7 @@ function phaseCopy() {
         label: 'Arm',
         hint: state.mode === 'party'
           ? `${currentPartyPlayer()?.name ?? 'Player'}: hold the phone tight, tap Arm, then one controlled punch.`
-          : 'Hold the phone tight in your fist. Tap Arm, then throw a controlled punch.',
+          : 'Hold the phone tight in your fist. Tap Arm, then punch — keep a firm grip (never throw the phone).',
         big: 'READY',
         unit: 'WAIT FOR ARM',
       };
