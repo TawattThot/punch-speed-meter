@@ -1,18 +1,31 @@
 import './style.css';
 import { PunchEstimator, msToMph } from './physics.js';
-import { loadHistory, addResult, clearHistory } from './storage.js';
+import {
+  loadHistory,
+  addResult,
+  clearHistory,
+  loadHighScore,
+  considerHighScore,
+  clearHighScore,
+} from './storage.js';
 import { DONATE_URL, APP_VERSION } from './config.js';
 
 const app = document.getElementById('app');
 const estimator = new PunchEstimator();
 
+const DEFAULT_PARTY_NAMES = ['Player 1', 'Player 2', 'Player 3', 'Player 4', 'Player 5', 'Player 6'];
+
 const state = {
-  screen: 'permission', // permission | arm | punch | results
+  // permission | modes | highscores | arm | punch | results
+  // party-setup | party-pass | party-arm | party-punch | party-result | party-final
+  screen: 'permission',
+  mode: null, // 'solo' | 'party'
   sensorOk: false,
   sensorMsg: 'Sensors not enabled yet',
   permissionDenied: false,
   awaitingPermission: false,
-  needsIOSPermission: typeof DeviceMotionEvent !== 'undefined' &&
+  needsIOSPermission:
+    typeof DeviceMotionEvent !== 'undefined' &&
     typeof DeviceMotionEvent.requestPermission === 'function',
   secure: window.isSecureContext,
   hasMotionAPI: typeof window.DeviceMotionEvent !== 'undefined',
@@ -20,7 +33,10 @@ const state = {
   liveSpeedMph: 0,
   lastResult: null,
   history: loadHistory(),
+  highScore: loadHighScore(),
+  beatHighScore: false,
   listening: false,
+  party: null,
 };
 
 let motionHandler = null;
@@ -44,23 +60,89 @@ function isPhoneCapable() {
   return state.secure && state.hasMotionAPI;
 }
 
+function escapeHtml(s) {
+  return String(s)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
+function isPartyScreen(screen = state.screen) {
+  return String(screen).startsWith('party-');
+}
+
+function currentPartyPlayer() {
+  if (!state.party) return null;
+  return state.party.players[state.party.currentIndex] ?? null;
+}
+
+function partyStandingRows() {
+  if (!state.party) return [];
+  return state.party.players
+    .map((p, i) => ({ ...p, index: i }))
+    .sort((a, b) => {
+      const am = a.score?.peakSpeedMph ?? -1;
+      const bm = b.score?.peakSpeedMph ?? -1;
+      if (bm !== am) return bm - am;
+      const ap = a.score?.power ?? -1;
+      const bp = b.score?.power ?? -1;
+      return bp - ap;
+    });
+}
+
+function partyWinner() {
+  const rows = partyStandingRows();
+  return rows.find((r) => r.score) ?? null;
+}
+
+function createParty(names) {
+  const cleaned = names
+    .map((n) => String(n).trim())
+    .filter(Boolean)
+    .slice(0, 6);
+  while (cleaned.length < 2) cleaned.push(`Player ${cleaned.length + 1}`);
+  return {
+    players: cleaned.map((name) => ({ name, score: null })),
+    currentIndex: 0,
+  };
+}
+
 function phaseCopy() {
   switch (state.screen) {
     case 'permission':
       return {
         label: 'Get Ready',
-        hint: 'Enable motion sensors, then arm up and punch while gripping the phone firmly.',
+        hint: 'Enable motion sensors, then pick Solo or Party Mode.',
         big: '0.0',
         unit: 'MPH PEAK',
       };
+    case 'modes':
+      return {
+        label: 'Choose Mode',
+        hint: 'Solo for personal bests. Party for pass-the-phone rounds (one punch each).',
+        big: 'GO',
+        unit: 'PICK A MODE',
+      };
+    case 'highscores':
+      return {
+        label: 'High Score',
+        hint: 'Your best punch on this device.',
+        big: state.highScore ? fmt(state.highScore.peakSpeedMph, 1) : '—',
+        unit: state.highScore ? 'MPH BEST' : 'NO SCORE YET',
+      };
     case 'arm':
+    case 'party-arm':
       return {
         label: 'Arm',
-        hint: 'Hold the phone tight in your fist. Tap Arm, then throw a controlled punch.',
+        hint: state.mode === 'party'
+          ? `${currentPartyPlayer()?.name ?? 'Player'}: hold the phone tight, tap Arm, then one controlled punch.`
+          : 'Hold the phone tight in your fist. Tap Arm, then throw a controlled punch.',
         big: 'READY',
         unit: 'WAIT FOR ARM',
       };
     case 'punch':
+    case 'party-punch':
       return {
         label: estimator.phase === 'punching' ? 'Punching' : 'Armed — Punch!',
         hint:
@@ -72,11 +154,47 @@ function phaseCopy() {
       };
     case 'results':
       return {
-        label: 'Results',
-        hint: 'Nice hit. Reset to go again.',
+        label: state.beatHighScore ? 'New High Score!' : 'Results',
+        hint: state.beatHighScore
+          ? 'You topped your best punch. Reset to chase again.'
+          : 'Nice hit. Reset to go again.',
         big: fmt(state.lastResult?.peakSpeedMph, 1),
         unit: 'MPH PEAK',
       };
+    case 'party-setup':
+      return {
+        label: 'Party Setup',
+        hint: '2–6 players. Edit names, then start — one armed punch each.',
+        big: String(state.party?.players.length ?? 2),
+        unit: 'PLAYERS',
+      };
+    case 'party-pass': {
+      const p = currentPartyPlayer();
+      return {
+        label: 'Pass the phone',
+        hint: 'Hand the phone to the next player. When ready, tap Continue.',
+        big: p?.name ?? '—',
+        unit: `PLAYER ${(state.party?.currentIndex ?? 0) + 1} OF ${state.party?.players.length ?? 0}`,
+      };
+    }
+    case 'party-result': {
+      const p = currentPartyPlayer();
+      return {
+        label: p?.name ?? 'Result',
+        hint: 'Score locked. Check the running board, then continue.',
+        big: fmt(p?.score?.peakSpeedMph ?? state.lastResult?.peakSpeedMph, 1),
+        unit: 'MPH PEAK',
+      };
+    }
+    case 'party-final': {
+      const w = partyWinner();
+      return {
+        label: 'Winner',
+        hint: w ? `${w.name} takes the crown.` : 'Round complete.',
+        big: w ? w.name : '—',
+        unit: w?.score ? `${fmt(w.score.peakSpeedMph, 1)} MPH` : 'PARTY OVER',
+      };
+    }
     default:
       return { label: '', hint: '', big: '—', unit: '' };
   }
@@ -111,12 +229,40 @@ function phoneOnlyBanner() {
   `;
 }
 
-function escapeHtml(s) {
-  return String(s)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
+function renderHighScorePanel(compact = false) {
+  const hs = state.highScore;
+  if (!hs) {
+    return `
+      <section class="card high-score-panel">
+        <h2><span>🏆 High Score</span></h2>
+        <div class="empty">No high score yet — land a punch to set the chase.</div>
+      </section>
+    `;
+  }
+  return `
+    <section class="card high-score-panel">
+      <h2>
+        <span>🏆 High Score</span>
+        ${compact ? '' : `<span class="hs-meta">${escapeHtml(timeAgo(hs.at))}</span>`}
+      </h2>
+      <div class="hs-row">
+        <div class="hs-main">${fmt(hs.peakSpeedMph, 1)} <span>mph</span></div>
+        <div class="hs-power">${fmt(hs.power, 1)}/10</div>
+      </div>
+      ${
+        compact
+          ? ''
+          : `<div class="hs-sub">${fmt(hs.peakSpeedKmh, 1)} km/h · ${fmt(hs.peakAccelG, 1)} g · ${escapeHtml(timeAgo(hs.at))}</div>`
+      }
+    </section>
+  `;
+}
+
+function renderBeatBanner() {
+  if (!state.beatHighScore || (state.screen !== 'results' && state.screen !== 'party-result')) {
+    return '';
+  }
+  return `<div class="beat-banner" role="status">🔥 NEW HIGH SCORE — you beat it!</div>`;
 }
 
 function renderHistory() {
@@ -174,38 +320,228 @@ function renderPermissionRecovery() {
   `;
 }
 
+function renderModePicker() {
+  if (state.screen !== 'modes') return '';
+  return `
+    <section class="card mode-picker">
+      <h2>Modes</h2>
+      <div class="mode-grid">
+        <button id="btn-mode-solo" type="button" class="mode-card">
+          <span class="mode-emoji" aria-hidden="true">🥊</span>
+          <span class="mode-title">Solo</span>
+          <span class="mode-desc">Arm, punch, chase your high score</span>
+        </button>
+        <button id="btn-mode-party" type="button" class="mode-card">
+          <span class="mode-emoji" aria-hidden="true">🎉</span>
+          <span class="mode-title">Party</span>
+          <span class="mode-desc">2–6 players · one punch each · crown a winner</span>
+        </button>
+        <button id="btn-mode-highscores" type="button" class="mode-card mode-card-wide">
+          <span class="mode-emoji" aria-hidden="true">🏆</span>
+          <span class="mode-title">High Scores</span>
+          <span class="mode-desc">View your best punch on this phone</span>
+        </button>
+      </div>
+    </section>
+  `;
+}
+
+function renderPartySetup() {
+  if (state.screen !== 'party-setup' || !state.party) return '';
+  const count = state.party.players.length;
+  const nameInputs = state.party.players
+    .map(
+      (p, i) => `
+      <label class="party-name-row">
+        <span>P${i + 1}</span>
+        <input type="text" data-party-name="${i}" maxlength="16" value="${escapeHtml(p.name)}" autocomplete="off" />
+      </label>`
+    )
+    .join('');
+  return `
+    <section class="card party-setup">
+      <h2>Players</h2>
+      <div class="party-count">
+        <button id="btn-party-dec" class="secondary" type="button" ${count <= 2 ? 'disabled' : ''}>−</button>
+        <div class="party-count-val">${count}</div>
+        <button id="btn-party-inc" class="secondary" type="button" ${count >= 6 ? 'disabled' : ''}>+</button>
+      </div>
+      <div class="party-names">${nameInputs}</div>
+      <p class="party-note">One armed punch per player — no windmill spam. Pass the phone between turns.</p>
+    </section>
+  `;
+}
+
+function renderPartyBoard(highlightIndex = null) {
+  if (!state.party) return '';
+  const rows = state.party.players
+    .map((p, i) => {
+      const scored = p.score != null;
+      const active = i === highlightIndex;
+      return `<li class="${active ? 'active' : ''} ${scored ? 'scored' : ''}">
+        <span class="pb-name">${escapeHtml(p.name)}</span>
+        <span class="pb-score">${scored ? `${fmt(p.score.peakSpeedMph, 1)} mph` : '—'}</span>
+        <span class="pb-power">${scored ? `${fmt(p.score.power, 1)}/10` : ''}</span>
+      </li>`;
+    })
+    .join('');
+  return `
+    <section class="card party-board">
+      <h2>Running scores</h2>
+      <ul class="party-board-list">${rows}</ul>
+    </section>
+  `;
+}
+
+function renderPartyFinalBoard() {
+  if (state.screen !== 'party-final' || !state.party) return '';
+  const ranked = partyStandingRows();
+  const rows = ranked
+    .map((p, rank) => {
+      const crown = rank === 0 && p.score ? '👑 ' : '';
+      return `<li class="${rank === 0 ? 'winner' : ''}">
+        <span class="pb-rank">#${rank + 1}</span>
+        <span class="pb-name">${crown}${escapeHtml(p.name)}</span>
+        <span class="pb-score">${p.score ? `${fmt(p.score.peakSpeedMph, 1)} mph` : '—'}</span>
+        <span class="pb-power">${p.score ? `${fmt(p.score.power, 1)}/10` : ''}</span>
+      </li>`;
+    })
+    .join('');
+  return `
+    <section class="card party-board party-final-board">
+      <h2>Final standings</h2>
+      <ul class="party-board-list">${rows}</ul>
+    </section>
+  `;
+}
+
 function renderActions() {
   if (state.screen === 'permission') {
     const disabled = !isPhoneCapable() || state.awaitingPermission ? ' disabled' : '';
     const label = state.permissionDenied ? 'Try Allow Again' : 'Allow Motion Access';
+    return `<button id="btn-enable" type="button"${disabled}>${label}</button>`;
+  }
+  if (state.screen === 'modes') {
+    return '';
+  }
+  if (state.screen === 'highscores') {
     return `
-      <button id="btn-enable" type="button"${disabled}>${label}</button>
+      <button id="btn-back-modes" type="button">Back to modes</button>
+      <button id="btn-clear-highscore" class="ghost" type="button">Clear high score</button>
     `;
   }
-  if (state.screen === 'arm') {
+  if (state.screen === 'party-setup') {
+    return `
+      <button id="btn-party-start" type="button">Start Party</button>
+      <button id="btn-back-modes" class="secondary" type="button">Back</button>
+    `;
+  }
+  if (state.screen === 'party-pass') {
+    return `
+      <button id="btn-party-ready" type="button">I'm ready — Continue</button>
+      <button id="btn-party-quit" class="ghost" type="button">Quit party</button>
+    `;
+  }
+  if (state.screen === 'arm' || state.screen === 'party-arm') {
     return `
       <button id="btn-arm" type="button">Arm</button>
+      ${
+        state.screen === 'party-arm'
+          ? `<button id="btn-party-quit" class="ghost" type="button">Quit party</button>`
+          : `<button id="btn-back-modes" class="ghost" type="button">Modes</button>`
+      }
     `;
   }
-  if (state.screen === 'punch') {
+  if (state.screen === 'punch' || state.screen === 'party-punch') {
+    return `<button id="btn-cancel" class="secondary" type="button">Cancel</button>`;
+  }
+  if (state.screen === 'results') {
     return `
-      <button id="btn-cancel" class="secondary" type="button">Cancel</button>
+      <button id="btn-reset" type="button">Reset</button>
+      <button id="btn-arm-again" class="secondary" type="button">Arm again</button>
+      <button id="btn-back-modes" class="ghost" type="button">Modes</button>
     `;
   }
-  // results
-  return `
-    <button id="btn-reset" type="button">Reset</button>
-    <button id="btn-arm-again" class="secondary" type="button">Arm again</button>
-  `;
+  if (state.screen === 'party-result') {
+    const last = state.party && state.party.currentIndex >= state.party.players.length - 1;
+    return `
+      <button id="btn-party-next" type="button">${last ? 'See winner' : 'Next player'}</button>
+    `;
+  }
+  if (state.screen === 'party-final') {
+    return `
+      <button id="btn-party-again" type="button">Play again</button>
+      <button id="btn-back-modes" class="secondary" type="button">Back to modes</button>
+    `;
+  }
+  return '';
+}
+
+function renderStageExtras() {
+  const result = state.lastResult;
+  if ((state.screen === 'results' || state.screen === 'party-result') && result) {
+    return `<div class="substats">
+      <div class="stat"><div class="label">km/h</div><div class="value">${fmt(result.peakSpeedKmh, 1)}</div></div>
+      <div class="stat"><div class="label">Peak accel</div><div class="value">${fmt(result.peakAccelG, 1)} g</div></div>
+      <div class="stat"><div class="label">Power</div><div class="value">${fmt(result.power, 1)} / 10</div></div>
+      <div class="stat"><div class="label">Duration</div><div class="value">${Math.round(result.durationMs)} ms</div></div>
+    </div>`;
+  }
+  if (state.screen === 'punch' || state.screen === 'party-punch') {
+    return `<div class="substats">
+      <div class="stat"><div class="label">Accel</div><div class="value">${fmt(state.liveAccelG, 1)} g</div></div>
+      <div class="stat"><div class="label">Phase</div><div class="value">${escapeHtml(estimator.phase)}</div></div>
+    </div>`;
+  }
+  if (state.screen === 'highscores' && state.highScore) {
+    const hs = state.highScore;
+    return `<div class="substats">
+      <div class="stat"><div class="label">km/h</div><div class="value">${fmt(hs.peakSpeedKmh, 1)}</div></div>
+      <div class="stat"><div class="label">Peak accel</div><div class="value">${fmt(hs.peakAccelG, 1)} g</div></div>
+      <div class="stat"><div class="label">Power</div><div class="value">${fmt(hs.power, 1)} / 10</div></div>
+      <div class="stat"><div class="label">When</div><div class="value" style="font-size:0.95rem">${escapeHtml(timeAgo(hs.at))}</div></div>
+    </div>`;
+  }
+  if (state.screen === 'party-final') {
+    const w = partyWinner();
+    if (!w?.score) return '';
+    return `<div class="substats">
+      <div class="stat"><div class="label">Winner mph</div><div class="value">${fmt(w.score.peakSpeedMph, 1)}</div></div>
+      <div class="stat"><div class="label">Power</div><div class="value">${fmt(w.score.power, 1)} / 10</div></div>
+    </div>`;
+  }
+  return '';
+}
+
+function showSafety() {
+  return !['modes', 'highscores', 'party-setup', 'party-pass', 'party-final'].includes(
+    state.screen
+  );
+}
+
+function showHistory() {
+  return state.mode === 'solo' && ['arm', 'punch', 'results'].includes(state.screen);
 }
 
 function render() {
   const copy = phaseCopy();
-  const result = state.lastResult;
   const meterPct = Math.min(100, (state.liveAccelG / 8) * 100);
-  const stageClass =
-    state.screen === 'results' ? 'stage card result-flash' : 'stage card';
-  const pulse = state.screen === 'punch' && estimator.phase === 'armed' ? ' pulse' : '';
+  const stageClass = [
+    'stage card',
+    state.screen === 'results' || state.screen === 'party-result' ? 'result-flash' : '',
+    state.beatHighScore && (state.screen === 'results' || state.screen === 'party-result')
+      ? 'beat-flash'
+      : '',
+    state.screen === 'party-pass' ? 'pass-stage' : '',
+    state.screen === 'party-final' ? 'final-stage' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const pulse =
+    (state.screen === 'punch' || state.screen === 'party-punch') &&
+    estimator.phase === 'armed'
+      ? ' pulse'
+      : '';
 
   app.innerHTML = `
     <header class="app-header">
@@ -216,7 +552,9 @@ function render() {
       <div class="badge">v${APP_VERSION}</div>
     </header>
 
-    <section class="card safety">
+    ${
+      showSafety()
+        ? `<section class="card safety">
       <div class="icon" aria-hidden="true">⚠️</div>
       <div>
         <h2>Safety</h2>
@@ -226,44 +564,57 @@ function render() {
           <li>Use a case; stop if the grip feels loose.</li>
         </ul>
       </div>
-    </section>
+    </section>`
+        : ''
+    }
 
     ${phoneOnlyBanner()}
     ${statusPill()}
     ${renderPermissionCoach()}
     ${renderPermissionRecovery()}
+    ${state.screen === 'permission' || state.screen === 'modes' ? renderHighScorePanel(true) : ''}
+    ${renderModePicker()}
+    ${renderPartySetup()}
 
-    <section class="${stageClass}">
+    ${
+      state.screen !== 'modes' && state.screen !== 'party-setup'
+        ? `<section class="${stageClass}">
       <div class="phase-label${pulse}">${escapeHtml(copy.label)}</div>
       <div class="big-number">${escapeHtml(copy.big)}<span class="unit">${escapeHtml(copy.unit)}</span></div>
-      <div class="meter" aria-hidden="true"><span style="width:${meterPct}%"></span></div>
-      <p class="hint">${escapeHtml(copy.hint)}</p>
       ${
-        state.screen === 'results' && result
-          ? `<div class="substats">
-              <div class="stat"><div class="label">km/h</div><div class="value">${fmt(result.peakSpeedKmh, 1)}</div></div>
-              <div class="stat"><div class="label">Peak accel</div><div class="value">${fmt(result.peakAccelG, 1)} g</div></div>
-              <div class="stat"><div class="label">Power</div><div class="value">${fmt(result.power, 1)} / 10</div></div>
-              <div class="stat"><div class="label">Duration</div><div class="value">${Math.round(result.durationMs)} ms</div></div>
-            </div>`
-          : state.screen === 'punch'
-            ? `<div class="substats">
-                <div class="stat"><div class="label">Accel</div><div class="value">${fmt(state.liveAccelG, 1)} g</div></div>
-                <div class="stat"><div class="label">Phase</div><div class="value">${escapeHtml(estimator.phase)}</div></div>
-              </div>`
-            : ''
+        state.screen === 'party-pass'
+          ? `<p class="pass-callout">Next player</p>`
+          : `<div class="meter" aria-hidden="true"><span style="width:${meterPct}%"></span></div>`
       }
-    </section>
+      <p class="hint">${escapeHtml(copy.hint)}</p>
+      ${renderBeatBanner()}
+      ${renderStageExtras()}
+    </section>`
+        : ''
+    }
+
+    ${
+      state.screen === 'party-result' || state.screen === 'party-pass'
+        ? renderPartyBoard(state.party?.currentIndex ?? null)
+        : ''
+    }
+    ${renderPartyFinalBoard()}
 
     <div class="actions">${renderActions()}</div>
 
-    <section class="card history">
+    ${
+      showHistory()
+        ? `<section class="card history">
       <h2>
         <span>Session history</span>
         <button id="btn-clear" class="ghost" type="button" style="padding:6px 10px;width:auto">Clear</button>
       </h2>
       ${renderHistory()}
-    </section>
+    </section>`
+        : ''
+    }
+
+    ${state.screen === 'results' ? renderHighScorePanel(false) : ''}
 
     <div class="donate-row">
       <button id="btn-donate" class="ghost donate" type="button">Donate</button>
@@ -279,6 +630,17 @@ function render() {
   bind();
 }
 
+function readPartyNamesFromDom() {
+  if (!state.party) return;
+  state.party.players.forEach((p, i) => {
+    const input = document.querySelector(`input[data-party-name="${i}"]`);
+    if (input) {
+      const v = input.value.trim();
+      p.name = v || DEFAULT_PARTY_NAMES[i] || `Player ${i + 1}`;
+    }
+  });
+}
+
 function bind() {
   document.getElementById('btn-enable')?.addEventListener('click', onEnableSensors);
   document.getElementById('btn-arm')?.addEventListener('click', onArm);
@@ -290,12 +652,117 @@ function bind() {
     render();
   });
   document.getElementById('btn-donate')?.addEventListener('click', onDonate);
+
+  document.getElementById('btn-mode-solo')?.addEventListener('click', () => {
+    state.mode = 'solo';
+    state.party = null;
+    state.beatHighScore = false;
+    state.lastResult = null;
+    state.screen = 'arm';
+    render();
+  });
+  document.getElementById('btn-mode-party')?.addEventListener('click', () => {
+    state.mode = 'party';
+    state.party = createParty(DEFAULT_PARTY_NAMES.slice(0, 2));
+    state.beatHighScore = false;
+    state.lastResult = null;
+    state.screen = 'party-setup';
+    render();
+  });
+  document.getElementById('btn-mode-highscores')?.addEventListener('click', () => {
+    state.highScore = loadHighScore();
+    state.screen = 'highscores';
+    render();
+  });
+  document.getElementById('btn-back-modes')?.addEventListener('click', () => {
+    estimator.resetSessionState();
+    state.mode = null;
+    state.party = null;
+    state.lastResult = null;
+    state.beatHighScore = false;
+    state.liveAccelG = 0;
+    state.liveSpeedMph = 0;
+    state.screen = state.sensorOk ? 'modes' : 'permission';
+    render();
+  });
+  document.getElementById('btn-clear-highscore')?.addEventListener('click', () => {
+    state.highScore = clearHighScore();
+    state.beatHighScore = false;
+    render();
+  });
+
+  document.getElementById('btn-party-inc')?.addEventListener('click', () => {
+    readPartyNamesFromDom();
+    if (!state.party || state.party.players.length >= 6) return;
+    const i = state.party.players.length;
+    state.party.players.push({
+      name: DEFAULT_PARTY_NAMES[i] || `Player ${i + 1}`,
+      score: null,
+    });
+    render();
+  });
+  document.getElementById('btn-party-dec')?.addEventListener('click', () => {
+    readPartyNamesFromDom();
+    if (!state.party || state.party.players.length <= 2) return;
+    state.party.players.pop();
+    render();
+  });
+  document.getElementById('btn-party-start')?.addEventListener('click', () => {
+    readPartyNamesFromDom();
+    state.party.currentIndex = 0;
+    state.party.players.forEach((p) => {
+      p.score = null;
+    });
+    state.screen = 'party-pass';
+    render();
+  });
+  document.getElementById('btn-party-ready')?.addEventListener('click', () => {
+    state.screen = 'party-arm';
+    render();
+  });
+  document.getElementById('btn-party-next')?.addEventListener('click', () => {
+    if (!state.party) return;
+    if (state.party.currentIndex >= state.party.players.length - 1) {
+      state.screen = 'party-final';
+    } else {
+      state.party.currentIndex += 1;
+      state.lastResult = null;
+      state.beatHighScore = false;
+      state.screen = 'party-pass';
+    }
+    render();
+  });
+  document.getElementById('btn-party-again')?.addEventListener('click', () => {
+    if (!state.party) return;
+    const names = state.party.players.map((p) => p.name);
+    state.party = createParty(names);
+    state.lastResult = null;
+    state.beatHighScore = false;
+    state.screen = 'party-pass';
+    render();
+  });
+  document.getElementById('btn-party-quit')?.addEventListener('click', () => {
+    estimator.resetSessionState();
+    state.mode = null;
+    state.party = null;
+    state.lastResult = null;
+    state.beatHighScore = false;
+    state.liveAccelG = 0;
+    state.liveSpeedMph = 0;
+    state.screen = 'modes';
+    render();
+  });
+
+  // Keep party name edits live without full re-render on every keystroke beyond input
+  document.querySelectorAll('input[data-party-name]').forEach((input) => {
+    input.addEventListener('change', readPartyNamesFromDom);
+    input.addEventListener('blur', readPartyNamesFromDom);
+  });
 }
 
 function onDonate() {
   const url = DONATE_URL;
   if (!url) return;
-  // Prefer external browser / new tab so donation never runs inside the WebView.
   try {
     const opened = window.open(url, '_blank', 'noopener,noreferrer');
     if (!opened) {
@@ -319,7 +786,6 @@ async function onEnableSensors() {
     return;
   }
 
-  // Keep this synchronous with the tap so iOS still treats requestPermission as user-activated.
   state.awaitingPermission = true;
   state.permissionDenied = false;
   state.sensorMsg = 'Waiting for Allow…';
@@ -341,13 +807,11 @@ async function onEnableSensors() {
       typeof DeviceOrientationEvent !== 'undefined' &&
       typeof DeviceOrientationEvent.requestPermission === 'function';
 
-    // Motion is required; call from the user gesture first.
     if (needsMotionPerm) {
       const res = await DeviceMotionEvent.requestPermission();
       motionGranted = res === 'granted';
     }
 
-    // Also request orientation when available (best-effort; motion remains required).
     if (needsOrientationPerm) {
       try {
         await DeviceOrientationEvent.requestPermission();
@@ -370,7 +834,7 @@ async function onEnableSensors() {
     state.permissionDenied = false;
     state.sensorOk = true;
     state.sensorMsg = 'Sensors active';
-    state.screen = 'arm';
+    state.screen = 'modes';
     render();
   } catch (err) {
     state.awaitingPermission = false;
@@ -430,7 +894,7 @@ function handleSample(sample) {
   if (out.type === 'live') {
     state.liveAccelG = out.accelG;
     state.liveSpeedMph = out.speedMph;
-    if (state.screen === 'punch') {
+    if (state.screen === 'punch' || state.screen === 'party-punch') {
       const big = document.querySelector('.big-number');
       const meter = document.querySelector('.meter > span');
       const hintPhase = document.querySelector('.phase-label');
@@ -451,9 +915,28 @@ function handleSample(sample) {
   if (out.type === 'result') {
     state.lastResult = out;
     state.history = addResult(out);
-    state.screen = 'results';
+    const { highScore, beat } = considerHighScore(out);
+    state.highScore = highScore;
+    state.beatHighScore = beat;
     state.liveAccelG = out.peakAccelG;
     state.liveSpeedMph = out.peakSpeedMph;
+
+    if (state.mode === 'party' && state.party) {
+      const player = currentPartyPlayer();
+      if (player) {
+        player.score = {
+          peakSpeedMph: out.peakSpeedMph,
+          peakSpeedKmh: out.peakSpeedKmh,
+          peakAccelG: out.peakAccelG,
+          power: out.power,
+          durationMs: out.durationMs,
+          at: out.at,
+        };
+      }
+      state.screen = 'party-result';
+    } else {
+      state.screen = 'results';
+    }
     render();
   }
 }
@@ -467,9 +950,10 @@ function onArm() {
   }
   estimator.arm();
   state.lastResult = null;
+  state.beatHighScore = false;
   state.liveAccelG = 0;
   state.liveSpeedMph = 0;
-  state.screen = 'punch';
+  state.screen = state.mode === 'party' ? 'party-punch' : 'punch';
   if (!state.listening && state.hasMotionAPI && state.secure) {
     startListening();
     state.sensorOk = true;
@@ -479,22 +963,22 @@ function onArm() {
 
 function onCancel() {
   estimator.resetSessionState();
-  state.screen = 'arm';
   state.liveAccelG = 0;
   state.liveSpeedMph = 0;
+  state.screen = state.mode === 'party' ? 'party-arm' : 'arm';
   render();
 }
 
 function onReset() {
   estimator.resetSessionState();
   state.lastResult = null;
+  state.beatHighScore = false;
   state.liveAccelG = 0;
   state.liveSpeedMph = 0;
   state.screen = 'arm';
   render();
 }
 
-// Register service worker when available (PWA nice-to-have)
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => {
@@ -503,7 +987,6 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// Initial routing hints
 if (!state.hasMotionAPI) {
   state.sensorMsg = 'Open on your phone';
 } else if (!state.secure) {
@@ -516,5 +999,4 @@ if (!state.hasMotionAPI) {
 
 render();
 
-// Export for console debugging / future kick adapter hook
 window.__punchSpeedMeter = { estimator, state, msToMph };

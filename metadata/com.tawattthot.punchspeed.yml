@@ -13,6 +13,9 @@ Description: |-
     Hold the phone firmly in your fist, arm, punch, and see peak speed (mph and
     km/h), peak acceleration, and a recreational power score.
 
+    Includes High Score chase (best punch saved on-device) and Party Mode
+    (2–6 players, one punch each, pass-the-phone, crown a winner).
+
     Motion data stays on your device. An optional Donate button opens
     https://paypal.me/joeyboy215 in the system browser.
 
@@ -44,6 +47,28 @@ Builds:
       - npm run build
       - npx cap sync android
 
+  - versionName: 1.1.0
+    versionCode: 2
+    commit: v1.1.0
+    subdir: android/app
+    sudo:
+      - echo "deb https://deb.debian.org/debian forky main" > /etc/apt/sources.list.d/forky.list
+      - apt-get update
+      - apt-get install -y -t forky npm
+    gradle:
+      - yes
+    prebuild:
+      - cd ../..
+      - npm ci
+    scanignore:
+      - node_modules/@capacitor/cli/assets/capacitor-cordova-android-plugins.tar.gz
+    scandelete:
+      - node_modules
+    build:
+      - cd ../..
+      - npm run build
+      - npx cap sync android
+
 AntiFeatures:
   - NonFreeNet
 
@@ -56,5 +81,5 @@ MaintainerNotes: |-
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 1.0.0
-CurrentVersionCode: 1
+CurrentVersion: 1.1.0
+CurrentVersionCode: 2

@@ -4,4 +4,4 @@
  */
 export const DONATE_URL = 'https://paypal.me/joeyboy215';
 
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.1.0';
