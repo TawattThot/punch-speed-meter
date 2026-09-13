@@ -1,3 +1,5 @@
+AntiFeatures:
+  - NonFreeNet
 Categories:
   - Sports & Health
 License: MIT
@@ -9,15 +11,15 @@ Donate: https://paypal.me/joeyboy215
 AutoName: Punch Speed Meter
 Summary: Measure punch peak speed with your phone accelerometer
 Description: |-
-    Punch Speed Meter estimates punch peak speed using your phone accelerometer.
-    Hold the phone firmly in your fist, arm, punch, and see peak speed (mph and
-    km/h), peak acceleration, and a recreational power score.
+  Punch Speed Meter estimates punch peak speed using your phone accelerometer.
+  Hold the phone firmly in your fist, arm, punch, and see peak speed (mph and
+  km/h), peak acceleration, and a recreational power score.
 
-    Modes: Solo, Party (pass-the-phone), and High Scores. Motion data stays on
-    your device. An optional Donate button opens https://paypal.me/joeyboy215
-    in the system browser.
+  Modes: Solo, Party (pass-the-phone), and High Scores. Motion data stays on
+  your device. An optional Donate button opens https://paypal.me/joeyboy215
+  in the system browser.
 
-    Safety: grip firmly, never throw the phone, clear the area, and use a case.
+  Safety: grip firmly, never throw the phone, clear the area, and use a case.
 
 RepoType: git
 Repo: https://github.com/TawattThot/punch-speed-meter.git
@@ -36,12 +38,15 @@ Builds:
     prebuild:
       - cd ../..
       - npm ci
+      - npm rebuild esbuild
     scanignore:
       - node_modules/@capacitor/cli/assets/capacitor-cordova-android-plugins.tar.gz
     scandelete:
       - node_modules
     build:
       - cd ../..
+      - npm ci
+      - npm rebuild esbuild
       - npm run build
       - npx cap sync android
 
@@ -58,23 +63,23 @@ Builds:
     prebuild:
       - cd ../..
       - npm ci
+      - npm rebuild esbuild
     scanignore:
       - node_modules/@capacitor/cli/assets/capacitor-cordova-android-plugins.tar.gz
     scandelete:
       - node_modules
     build:
       - cd ../..
+      - npm ci
+      - npm rebuild esbuild
       - npm run build
       - npx cap sync android
 
-AntiFeatures:
-  - NonFreeNet
-
 MaintainerNotes: |-
-    INTERNET is declared only so the optional Donate button can open
-    https://paypal.me/joeyboy215 in the system browser. Core punch metering is
-    fully on-device (DeviceMotion / accelerometer) and does not require network
-    access. NonFreeNet is listed because PayPal is a proprietary network service.
+  INTERNET is declared only so the optional Donate button can open
+  https://paypal.me/joeyboy215 in the system browser. Core punch metering is
+  fully on-device (DeviceMotion / accelerometer) and does not require network
+  access. NonFreeNet is listed because PayPal is a proprietary network service.
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
