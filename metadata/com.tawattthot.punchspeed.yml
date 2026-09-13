@@ -9,7 +9,6 @@ IssueTracker: https://github.com/TawattThot/punch-speed-meter/issues
 Donate: https://paypal.me/joeyboy215
 
 AutoName: Punch Speed Meter
-Summary: Measure punch peak speed with your phone accelerometer
 Description: |-
   Punch Speed Meter estimates punch peak speed using your phone accelerometer.
   Hold the phone firmly in your fist, arm, punch, and see peak speed (mph and
